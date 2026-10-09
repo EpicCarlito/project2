@@ -4,7 +4,6 @@
 import asyncio
 import math
 import os
-import random
 
 import pygame
 
@@ -65,9 +64,13 @@ async def main():
             keys = pygame.key.get_pressed()
 
     # Player Class
+    # The position and player_rect are not synced
     class Player(Character):
         def __init__(self, x, y):
             super().__init__(x, y)
+            self.player_rect = pygame.Rect(
+                self.position.x, self.position.y, SPRITE_SIZE, SPRITE_SIZE
+            )
 
         def update(self):
             leftX, rightX = 50, WIDTH - 50
@@ -75,17 +78,26 @@ async def main():
 
             forward = self.get_forward_vector()
             self.position += self.velocity
-            # if (self.position.x < leftX or self.position.x > rightX) return
-            # Block the following code
 
-            if keys[pygame.K_LEFT] or keys[pygame.K_a]:
-                self.angle += 5
+            # Move individual player left to right
+            if self.player_rect.left > leftX:
+                if keys[pygame.K_LEFT] or keys[pygame.K_a]:
+                    self.position.x -= 5
 
-        def draw(self):
-            player_rect = pygame.Rect(
+            if self.player_rect.right < rightX:
+                if keys[pygame.K_RIGHT] or keys[pygame.K_d]:
+                    self.position.x += 5
+
+            print(self.position)
+
+            self.player_rect = pygame.Rect(
                 self.position.x, self.position.y, SPRITE_SIZE, SPRITE_SIZE
             )
-            screen.blit(zombie_sprite, player_rect)
+
+            # Block the following code
+
+        def draw(self):
+            screen.blit(zombie_sprite, self.player_rect)
 
     class Missile:
         def __init__(self, start_position, direction):
@@ -109,6 +121,19 @@ async def main():
 
     player = Player(WIDTH / 2, HEIGHT - HEIGHT / 4)
 
+    # Green, Yellow
+    colors = [(100, 180, 100), (252, 163, 3)]
+
+    # Map
+    platforms = [
+        # Outline
+        [pygame.Rect(0, 0, 50, HEIGHT), colors[0]],
+        [pygame.Rect(WIDTH - 50, 0, 50, HEIGHT), colors[0]],
+        # Walls
+        [pygame.Rect(50 * 3, 0, 20, HEIGHT / 2), colors[1]],
+        [pygame.Rect(WIDTH - (25 + (50 * 3)), 0, 20, HEIGHT / 2), colors[1]],
+    ]
+
     while running:
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
@@ -127,10 +152,18 @@ async def main():
         for missile in missiles:
             missile.update()
 
+        player.update()
+
         # Render Components
 
+        # Map
+        for platform in platforms:
+            pygame.draw.rect(screen, platform[1], platform[0])
+
+        # Character
+
         player.draw()
-        
+
         for missile in missiles:
             missile.draw()
 
