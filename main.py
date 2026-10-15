@@ -143,7 +143,7 @@ async def main():
             self.last_update = pygame.time.get_ticks()
             self.animation_cooldown = 100
 
-        def update(self):
+        def update(self, speed):
             distance_vector = player.position - self.position
             distance = distance_vector.length()
             
@@ -151,9 +151,9 @@ async def main():
             
             if distance < TRIGGER_DISTANCE and distance > 0:
                 direction = distance_vector.normalize()
-                self.position += direction * 3
+                self.position += direction * speed
             else:
-                self.position.y += 3
+                self.position.y += speed
                 
             self.rect.topleft = (int(self.position.x), int(self.position.y))
             
@@ -180,7 +180,7 @@ async def main():
             self.start_x = 180
             self.start_y = 40
             self.direction = 1
-            self.speed = 0.0001
+            self.speed = 0.5
 
             for row in range(self.rows):
                 for column in range(self.columns):
@@ -206,7 +206,7 @@ async def main():
             collision_detected = False
             
             for enemy in self.characters:
-                enemy.update()
+                enemy.update(self.speed)
 
                 if enemy.rect.colliderect(player.rect):
                     collision_detected = True
