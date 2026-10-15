@@ -4,6 +4,7 @@
 import asyncio
 import math
 import os
+import random
 
 import pygame
 
@@ -27,13 +28,18 @@ async def main():
 
     running = True
 
-    # Crowd Class
-    # Handles all the angles and velocities of the characters
-    class Crowd:
-        def __init__(self, characters):
-            self.characters = characters
-            self.angle = 0
-            self.velocity = pygame.Vector2(0, 0)
+    # Green, Yellow, Purple
+    colors = [(100, 180, 100), (252, 163, 3), (128, 0, 128)]
+
+    # Map
+    platforms = [
+        # Outline
+        [pygame.Rect(0, 0, 50, HEIGHT), colors[0]],
+        [pygame.Rect(WIDTH - 50, 0, 50, HEIGHT), colors[0]],
+        # Walls
+        [pygame.Rect(50 * 3, 0, 25, HEIGHT / 2), colors[1]],
+        [pygame.Rect(WIDTH - (25 + (50 * 3)), 0, 25, HEIGHT / 2), colors[1]],
+    ]
 
     class Character:
         def __init__(self, x, y):
@@ -47,54 +53,148 @@ async def main():
 
             return forward
 
+    class Crowd:
+        def __init__(self):
+            self.characters = []
+            self.columns = 4
+            self.spacing = SPRITE_SIZE + 4
+
+        def update_positions(self):
+            for i, character in enumerate(self.characters):
+                column = i % self.columns
+                row = i // self.columns
+
+                character.position.x = self.start_x + column * self.spacing
+                character.position.y = self.start_y + row * self.spacing
+
+                character.rect.topleft = (
+                    int(character.position.x),
+                    int(character.position.y),
+                )
+
+        def draw(self):
+            for character in self.characters:
+                character.draw()
+
+    # Crowd Class
+    # Handles all the angles and velocities of the characters
+    class PlayerCrowd(Crowd):
+        def __init__(self, player):
+            super().__init__()
+            self.characters.append(player)
+            self.columns = 4
+            self.start_x = 50
+            self.start_y = HEIGHT - HEIGHT / 4
+
+        def add_character(self):
+            self.characters.append(Player(0, 0))
+            self.update_positions()
+
+        def update(self):
+            keys = pygame.key.get_pressed()
+            player = self.characters[0]
+
+            if keys[pygame.K_LEFT] or keys[pygame.K_a]:
+                player.position.x -= 5
+
+            if keys[pygame.K_RIGHT] or keys[pygame.K_d]:
+                player.position.x += 5
+
+            max_x = WIDTH - 50 - SPRITE_SIZE - (self.columns - 1) * self.spacing
+
+            player.position.x = max(50, min(player.position.x, max_x))
+
+            self.start_x = player.position.x
+            self.start_y = player.position.y
+            self.update_positions()
+
+        def draw(self):
+            for character in self.characters:
+                screen.blit(zombie_sprite, character.rect)
+
     # Enemy Class
     class Enemy(Character):
         def __init__(self, x, y):
-            super().__init__(x)
-            super().__init__(y)
-            self.radius = 20
-            self.state = "PATROL"
+            super().__init__(x, y)
+            self.rect = pygame.Rect(x, y, SPRITE_SIZE, SPRITE_SIZE)
 
-            self.distance = 0
-            self.dot = 0
+        def draw(self):
+            screen.blit(zombie_sprite, self.rect)
 
-            self.fire_timer = 0
+    class EnemyCrowd(Crowd):
+        def __init__(self):
+            super().__init__()
+            self.columns = 7
+            self.rows = 3
+            self.start_x = 180
+            self.start_y = 40
+            self.direction = 1
+            self.speed = 1
+
+            self.last_spawn_time = 0
+            self.spawn_delay = 2500
+
+            for row in range(self.rows):
+                for column in range(self.columns):
+                    x = self.start_x + column * self.spacing
+                    y = self.start_y + row * self.spacing
+                    self.characters.append(Enemy(x, y))
+
+        def increase_speed(self):
+            self.speed += 0.5
+
+        def spawn_enemy(self):
+            if self.characters:
+                lowest_y = max(
+                    enemy.position.y for enemy in self.characters
+                )
+                next_y = lowest_y + self.spacing
+            else:
+                next_y = self.start_y
+
+            self.spawn_row_at_y(next_y)
+            
+        def spawn_row_at_y(self, y):
+            for column in range(self.columns):
+                x = self.start_x + column * self.spacing
+                self.characters.append(Enemy(x, y))
 
         def update(self):
-            keys = pygame.key.get_pressed()
+            current_time = pygame.time.get_ticks()
+
+            if current_time - self.last_spawn_time >= self.spawn_delay:
+                self.spawn_enemy()
+                self.last_spawn_time = current_time
+
+            for enemy in self.characters:
+                enemy.position.y += self.speed
+
+                enemy.rect.topleft = (
+                    int(enemy.position.x),
+                    int(enemy.position.y),
+                )
 
     # Player Class
-    # The position and player_rect are not synced
     class Player(Character):
         def __init__(self, x, y):
             super().__init__(x, y)
-            self.player_rect = pygame.Rect(
-                self.position.x, self.position.y, SPRITE_SIZE, SPRITE_SIZE
-            )
+            self.rect = pygame.Rect(x, y, SPRITE_SIZE, SPRITE_SIZE)
 
         def update(self):
-            leftX, rightX = 50, WIDTH - 50
             keys = pygame.key.get_pressed()
 
-            forward = self.get_forward_vector()
-            self.position += self.velocity
+            if keys[pygame.K_LEFT] or keys[pygame.K_a]:
+                self.position.x -= 5
 
-            # Move individual player left to right
-            if self.player_rect.left > leftX:
-                if keys[pygame.K_LEFT] or keys[pygame.K_a]:
-                    self.position.x -= 5
+            if keys[pygame.K_RIGHT] or keys[pygame.K_d]:
+                self.position.x += 5
 
-            if self.player_rect.right < rightX:
-                if keys[pygame.K_RIGHT] or keys[pygame.K_d]:
-                    self.position.x += 5
+            self.position.x = max(50, min(self.position.x, WIDTH - 50 - SPRITE_SIZE))
 
-            print(self.position)
-
-            self.player_rect = pygame.Rect(
-                self.position.x, self.position.y, SPRITE_SIZE, SPRITE_SIZE
+            self.player_rect.topleft = (
+                int(self.position.x),
+                int(self.position.y),
             )
-
-            # Block the following code
 
         def draw(self):
             screen.blit(zombie_sprite, self.player_rect)
@@ -102,70 +202,180 @@ async def main():
     class Missile:
         def __init__(self, start_position, direction):
             self.position = pygame.Vector2(start_position)
-            self.velocity = direction * 3
+            self.previous_position = self.position.copy()
+            self.speed = 3
+            self.velocity = direction * self.speed
+            self.radius = 2
 
         def update(self):
-            self.position += self.velocity
+            steps = self.speed
+
+            for _ in range(steps):
+                self.position += self.velocity / steps
+
+                missile_rect = pygame.Rect(
+                    int(self.position.x - self.radius),
+                    int(self.position.y - self.radius),
+                    self.radius * 2,
+                    self.radius * 2,
+                )
+
+            for platform in platforms:
+                if missile_rect.colliderect(platform[0]):
+                    return True
+
+            return False
 
         def draw(self):
             pygame.draw.circle(
                 screen,
                 "yellow",
-                (int(self.position.x + 8), int(self.position.y + 24)),
-                2,
+                (self.position.x, self.position.y),
+                self.radius,
             )
+
+    class MovingAttribute:
+        def __init__(self, x, y, width, height, color, effect):
+            self.position = pygame.Vector2(x, y)
+            self.velocity = pygame.Vector2(0, 2)
+
+            self.width = width
+            self.height = height
+            self.color = color
+            self.effect = effect
+
+            self.rect = pygame.Rect(x, y, width, height)
+
+        def update(self):
+            self.position += self.velocity
+
+            self.rect = pygame.Rect(
+                int(self.position.x),
+                int(self.position.y),
+                self.width,
+                self.height,
+            )
+
+            if self.position.y > HEIGHT:
+                self.position.y = -self.height
+
+        def draw(self):
+            pygame.draw.rect(screen, self.color, self.rect)
 
     # Game Loop
 
+    # Map
+
+    attributes = [
+        MovingAttribute(50, 0, 100, 25, colors[2], "character"),
+        MovingAttribute(WIDTH - 150, 0, 100, 25, colors[2], "delay"),
+    ]
+
     missiles = []
 
+    MISSILE_DELAY = 500
+    last_shot_time = 0
+
     player = Player(WIDTH / 2, HEIGHT - HEIGHT / 4)
-
-    # Green, Yellow
-    colors = [(100, 180, 100), (252, 163, 3)]
-
-    # Map
-    platforms = [
-        # Outline
-        [pygame.Rect(0, 0, 50, HEIGHT), colors[0]],
-        [pygame.Rect(WIDTH - 50, 0, 50, HEIGHT), colors[0]],
-        # Walls
-        [pygame.Rect(50 * 3, 0, 20, HEIGHT / 2), colors[1]],
-        [pygame.Rect(WIDTH - (25 + (50 * 3)), 0, 20, HEIGHT / 2), colors[1]],
-    ]
+    crowd = PlayerCrowd(player)
+    enemy_crowd = EnemyCrowd()
 
     while running:
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 running = False
-            if event.type == pygame.KEYDOWN:
-                if event.key == pygame.K_SPACE:
-                    forward = player.get_forward_vector()
-                    missile_start = player.position + forward * 24
-                    new_missile = Missile(missile_start, forward)
-                    missiles.append(new_missile)
 
         screen.fill((20, 24, 40))
 
-        # Code Logic
+        ## Code Logic
 
-        for missile in missiles:
-            missile.update()
+        for missile in missiles[:]:
+            hit_wall = missile.update()
 
-        player.update()
+            if hit_wall:
+                missiles.remove(missile)
+                continue
 
-        # Render Components
+            missile_rect = pygame.Rect(
+                int(missile.position.x - missile.radius),
+                int(missile.position.y - missile.radius),
+                missile.radius * 2,
+                missile.radius * 2,
+            )
+
+            hit_enemy = None
+
+            for enemy in enemy_crowd.characters:
+                if missile_rect.colliderect(enemy.rect):
+                    hit_enemy = enemy
+                    break
+
+            if hit_enemy is not None:
+                enemy_crowd.characters.remove(hit_enemy)
+                missiles.remove(missile)
+                continue
+
+            if (
+                missile.position.y < 0
+                or missile.position.y > HEIGHT
+                or missile.position.x < 0
+                or missile.position.x > WIDTH
+            ):
+                missiles.remove(missile)
+
+        crowd.update()
+        enemy_crowd.update()
+
+        keys = pygame.key.get_pressed()
+
+        current_time = pygame.time.get_ticks()
+
+        if keys[pygame.K_SPACE]:
+            if current_time - last_shot_time >= MISSILE_DELAY:
+                for character in crowd.characters:
+                    forward = character.get_forward_vector()
+
+                    character_center = character.position + pygame.Vector2(
+                        SPRITE_SIZE / 2,
+                        SPRITE_SIZE / 2,
+                    )
+
+                    missile_start = character_center + forward * (SPRITE_SIZE / 2 + 4)
+
+                    missiles.append(Missile(missile_start, forward))
+
+                    last_shot_time = current_time
+
+        for attribute in attributes:
+            attribute.update()
+
+            if player.rect.colliderect(attribute.rect):
+                if attribute.effect == "character":
+                    crowd.add_character()
+
+                elif attribute.effect == "delay":
+                    MISSILE_DELAY = max(100, MISSILE_DELAY - 100)
+
+                attribute.position.y = -attribute.height
+                attribute.rect.topleft = (
+                    int(attribute.position.x),
+                    int(attribute.position.y),
+                )
+
+        ## Render Components
 
         # Map
         for platform in platforms:
             pygame.draw.rect(screen, platform[1], platform[0])
 
-        # Character
-
-        player.draw()
+        for attribute in attributes:
+            attribute.draw()
 
         for missile in missiles:
             missile.draw()
+
+        enemy_crowd.draw()
+        crowd.draw()
 
         pygame.display.flip()
         clock.tick(60)
