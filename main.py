@@ -109,7 +109,8 @@ async def main():
             if keys[pygame.K_RIGHT] or keys[pygame.K_d]:
                 player.position.x += 5
 
-            max_x = WIDTH - 50 - SPRITE_SIZE - (self.columns - 1) * self.spacing
+            playerCount = 4 if len(self.characters) > 4 else len(self.characters)
+            max_x = WIDTH - SPRITE_SIZE - (playerCount * self.spacing)
 
             player.position.x = max(50, min(player.position.x, max_x))
 
@@ -130,7 +131,7 @@ async def main():
         def __init__(self, x, y):
             super().__init__(x, y)
             self.rect = pygame.Rect(x, y, SPRITE_SIZE, SPRITE_SIZE)
-            
+
             self.position = pygame.Vector2(x, y)
 
             self.sheet = SpriteSheet("assets/virus.png")
@@ -139,48 +140,92 @@ async def main():
                 for i in range(4)
             ]
 
+            self.DEATH_FRAMES = [
+                self.sheet.get_image(
+                    i * SPRITE_SIZE, SPRITE_SIZE, SPRITE_SIZE, SPRITE_SIZE
+                )
+                for i in range(4, 8)
+            ]
+            
+            self.current_frame = 0
+            self.death_frame = 0
+
             self.current_frame = 0
             self.last_update = pygame.time.get_ticks()
             self.animation_cooldown = 100
 
+            self.dying = False
+            self.dead = False
+
+        def start_death(self):
+            if self.dying:
+                return
+
+            self.dying = True
+            self.death_frame = 0
+            self.last_update = pygame.time.get_ticks()
+
+
         def update(self, speed):
+            current_time = pygame.time.get_ticks()
+
+            # Death animation
+            if self.dying:
+                if current_time - self.last_update >= self.animation_cooldown:
+                    self.last_update = current_time
+                    self.death_frame += 1
+
+                    if self.death_frame >= len(self.DEATH_FRAMES):
+                        self.dead = True
+
+                return
+
+            # Normal enemy movement
             distance_vector = player.position - self.position
             distance = distance_vector.length()
-            
-            TRIGGER_DISTANCE = 200
-            
-            if distance < TRIGGER_DISTANCE and distance > 0:
+
+            if distance < 200 and distance > 0:
                 direction = distance_vector.normalize()
-                self.position += direction * speed
+                self.position += direction * speed * 2
             else:
                 self.position.y += speed
-                
-            self.rect.topleft = (int(self.position.x), int(self.position.y))
-            
-            
-            # Draw Animation
-            current_time = pygame.time.get_ticks()
-            if current_time - self.last_update >= self.animation_cooldown:
-                self.current_frame += 1
-                self.last_update = current_time
 
-                if self.current_frame >= len(self.ANIMATION_FRAMES):
-                    self.current_frame = 0
+            self.rect.topleft = (
+                int(self.position.x),
+                int(self.position.y),
+            )
+
+            # Normal animation — update only once
+            if current_time - self.last_update >= self.animation_cooldown:
+                self.last_update = current_time
+                self.current_frame = (
+                    self.current_frame + 1
+                ) % len(self.ANIMATION_FRAMES)
+
 
         def draw(self):
-            active_image = self.ANIMATION_FRAMES[self.current_frame]
+            if self.dying:
+                if self.death_frame < len(self.DEATH_FRAMES):
+                    active_image = self.DEATH_FRAMES[self.death_frame]
+                else:
+                    return
+            else:
+                active_image = self.ANIMATION_FRAMES[self.current_frame]
 
-            screen.blit(active_image, (self.position.x, self.position.y))
+            screen.blit(
+                active_image,
+                (int(self.position.x), int(self.position.y)),
+            )
 
     class EnemyCrowd(Crowd):
-        def __init__(self):
+        def __init__(self, start_x, columns):
             super().__init__()
-            self.columns = 4
+            self.columns = columns
             self.rows = 3
-            self.start_x = 180
+            self.start_x = start_x
             self.start_y = 40
             self.direction = 1
-            self.speed = 0.5
+            self.speed = 0.25
 
             for row in range(self.rows):
                 for column in range(self.columns):
@@ -204,20 +249,25 @@ async def main():
 
         def update(self, player):
             collision_detected = False
-            
-            for enemy in self.characters:
+
+            for enemy in self.characters[:]:
                 enemy.update(self.speed)
 
-                if enemy.rect.colliderect(player.rect):
+                if enemy.dead:
+                    self.characters.remove(enemy)
+                    continue
+
+                if not enemy.dying and enemy.rect.colliderect(player.rect):
                     collision_detected = True
-            
+
             if self.characters:
                 highest_y = min(enemy.position.y for enemy in self.characters)
+
                 if highest_y >= self.start_y:
                     self.spawn_enemy()
             else:
                 self.spawn_enemy()
-                
+
             return collision_detected
 
         def draw(self):
@@ -229,38 +279,16 @@ async def main():
         def __init__(self, x, y):
             super().__init__(x, y)
             self.rect = pygame.Rect(x, y, SPRITE_SIZE, SPRITE_SIZE)
-
-            self.sheet = SpriteSheet("assets/missile.png")
-
-            self.ANIMATION_FRAMES = [
-                self.sheet.get_image(i * SPRITE_SIZE, 0, SPRITE_SIZE, SPRITE_SIZE)
-                for i in range(4)
-            ]
-
-            self.current_frame = 0
-            self.last_update = pygame.time.get_ticks()
-            self.animation_cooldown = 100
+            self.sheet = SpriteSheet("assets/launcher.png")
+            self.image = self.sheet.get_image(0, 0, SPRITE_SIZE, SPRITE_SIZE)
 
         def update(self):
             keys = pygame.key.get_pressed()
 
             self.rect.topleft = (int(self.position.x), int(self.position.y))
 
-            current_time = pygame.time.get_ticks()
-            if current_time - self.last_update >= self.animation_cooldown:
-                self.current_frame += 1
-                self.last_update = current_time
-
-                if self.current_frame >= len(self.ANIMATION_FRAMES):
-                    self.current_frame = 0
-
         def draw(self):
-            active_image = self.ANIMATION_FRAMES[self.current_frame]
-
-            draw_x = self.position.x - (SPRITE_SIZE // 2)
-            draw_y = self.position.y - (SPRITE_SIZE // 2)
-
-            screen.blit(active_image, (draw_x, draw_y))
+            screen.blit(self.image, self.rect)
 
     class Missile:
         def __init__(self, start_position, direction):
@@ -327,7 +355,7 @@ async def main():
             self.effect = effect
 
             self.rect = pygame.Rect(x, y, width, height)
-            
+
             self.font = pygame.font.SysFont(None, 20)
 
         def update(self):
@@ -345,10 +373,10 @@ async def main():
 
         def draw(self):
             pygame.draw.rect(screen, self.color, self.rect)
-            
+
             text_surface = self.font.render(self.effect, True, "white")
             text_rect = text_surface.get_rect(center=self.rect.center)
-            
+
             screen.blit(text_surface, text_rect)
 
     # Game Loop
@@ -362,12 +390,14 @@ async def main():
 
     missiles = []
 
-    MISSILE_DELAY = 500
+    missile_delay = 800
+
     last_shot_time = 0
 
     player = Player(WIDTH / 2, HEIGHT - HEIGHT / 4)
     crowd = PlayerCrowd(player)
-    enemy_crowd = EnemyCrowd()
+
+    enemies = [EnemyCrowd(64, 2), EnemyCrowd(180, 4), EnemyCrowd(WIDTH - 134, 2)]
 
     while running:
         for event in pygame.event.get():
@@ -394,14 +424,20 @@ async def main():
                 )
 
                 hit_enemy = None
+                hit_crowd = None
 
-                for enemy in enemy_crowd.characters:
-                    if missile_rect.colliderect(enemy.rect):
-                        hit_enemy = enemy
+                for enemy_crowd in enemies:
+                    for enemy in enemy_crowd.characters:
+                        if not enemy.dying and missile_rect.colliderect(enemy.rect):
+                            hit_enemy = enemy
+                            hit_crowd = enemy_crowd
+                            break
+
+                    if hit_enemy is not None:
                         break
 
                 if hit_enemy is not None:
-                    enemy_crowd.characters.remove(hit_enemy)
+                    hit_enemy.start_death()
                     missiles.remove(missile)
                     continue
 
@@ -414,17 +450,22 @@ async def main():
                     missiles.remove(missile)
 
             crowd.update()
-            enemy_crowd.update(player)
-            if enemy_crowd.update(player): 
-                game_state = "GAME_OVER"
 
+            collision_detected = False
+
+            for enemy_crowd in enemies:
+                if enemy_crowd.update(player):
+                    collision_detected = True
+
+            if collision_detected:
+                game_state = "GAME_OVER"
 
             keys = pygame.key.get_pressed()
 
             current_time = pygame.time.get_ticks()
 
             if keys[pygame.K_SPACE]:
-                if current_time - last_shot_time >= MISSILE_DELAY:
+                if current_time - last_shot_time >= missile_delay:
                     for character in crowd.characters:
                         forward = character.get_forward_vector()
 
@@ -433,7 +474,9 @@ async def main():
                             SPRITE_SIZE / 2,
                         )
 
-                        missile_start = character_center + forward * (SPRITE_SIZE / 2 + 4)
+                        missile_start = character_center + forward * (
+                            SPRITE_SIZE / 2 + 4
+                        )
 
                         missiles.append(Missile(missile_start, forward))
 
@@ -441,19 +484,22 @@ async def main():
 
             for attribute in attributes:
                 attribute.update()
+                for character in crowd.characters:
+                    if character.rect.colliderect(attribute.rect):
+                        if attribute.effect == "+1 player":
+                            crowd.add_character()
 
-                if player.rect.colliderect(attribute.rect):
-                    if attribute.effect == "+1 player":
-                        crowd.add_character()
+                        elif attribute.effect == "shoot faster":
+                            missile_delay = max(300, missile_delay - 50)
 
-                    elif attribute.effect == "shoot faster":
-                        MISSILE_DELAY = max(100, MISSILE_DELAY - 100)
+                        for enemy_crowd in enemies:
+                            enemy_crowd.speed += 0.01
 
-                    attribute.position.y = -attribute.height
-                    attribute.rect.topleft = (
-                        int(attribute.position.x),
-                        int(attribute.position.y),
-                    )
+                        attribute.position.y = -attribute.height
+                        attribute.rect.topleft = (
+                            int(attribute.position.x),
+                            int(attribute.position.y),
+                        )
 
             ## Render Components
 
@@ -467,11 +513,13 @@ async def main():
             for missile in missiles:
                 missile.draw()
 
-            enemy_crowd.draw()
+            for enemy_crowd in enemies:
+                enemy_crowd.draw()
+
             crowd.draw()
         elif game_state == "GAME_OVER":
             screen.fill((0, 0, 0))
-        
+
             text_surf = font.render("GAME OVER", True, (255, 0, 0))
             text_rect = text_surf.get_rect(center=(WIDTH // 2, HEIGHT // 2))
             screen.blit(text_surf, text_rect)
