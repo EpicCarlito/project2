@@ -420,7 +420,7 @@ async def main():
                             missile_delay = max(300, missile_delay - 10)
 
                         for enemy_crowd in enemies:
-                            enemy_crowd.speed += 0.1
+                            enemy_crowd.speed += 0.25
 
                         attribute.position.y = -attribute.height
                         attribute.rect.topleft = (
